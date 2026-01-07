@@ -1,1 +1,1 @@
-"""Memory module."""
+"""Memory module package."""
