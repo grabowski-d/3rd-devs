@@ -1,0 +1,1 @@
+"""Audio map frontend module."""
