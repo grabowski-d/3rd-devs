@@ -1,35 +1,51 @@
-"""Flask application for chat conversations."""
-from flask import Flask, request, jsonify
+"""Example chat application with conversation management."""
+
 import asyncio
-from chat_service import ChatService
-
-app = Flask(__name__)
-port = 3000
-
-chat_service = ChatService()
+from .openai_service import OpenAIService
+from .chat_service import ChatService
 
 
-@app.route('/api/chat', methods=['POST'])
-async def chat():
-    """Handle chat endpoint."""
-    try:
-        data = request.json
-        result = await chat_service.chat(data)
-        return jsonify(result.model_dump())
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+async def main():
+    """Run example chat application."""
+
+    # Initialize services
+    openai_service = OpenAIService()
+    chat_service = ChatService(openai_service)
+
+    print("\n" + "=" * 60)
+    print("Chat Service Example")
+    print("=" * 60 + "\n")
+
+    # Demo conversation
+    demo_messages = [
+        "Hi! I'm Adam",
+        "How are you?",
+        "Do you know my name?",
+    ]
+
+    for user_message in demo_messages:
+        print(f"Adam: {user_message}")
+
+        try:
+            response = await chat_service.get_response(
+                user_message=user_message,
+                system_prompt="You are Alice, a helpful assistant who speaks using as few words as possible.",
+            )
+            print(f"Alice: {response}\n")
+
+        except Exception as error:
+            print(f"Error: {error}\n")
+
+    # Show conversation summary
+    print("\nConversation Summary:")
+    print("-" * 60)
+    print(chat_service.get_summarization())
+    print("-" * 60)
+
+    # Show history
+    print(f"\nTotal messages: {len(chat_service.get_history())}")
+    print("=" * 60 + "\n")
 
 
-@app.route('/api/demo', methods=['POST'])
-async def demo():
-    """Handle demo endpoint."""
-    try:
-        result = await chat_service.demo()
-        return jsonify(result.model_dump() if result else {})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-if __name__ == '__main__':
-    print(f'Server running at http://localhost:{port}. Listening for POST /api/chat and /api/demo requests')
-    app.run(port=port, debug=False)
+if __name__ == "__main__":
+    asyncio.run(main())
