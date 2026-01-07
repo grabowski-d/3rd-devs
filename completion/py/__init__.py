@@ -1,4 +1,6 @@
 """Task completion and categorization service."""
-from .completion_service import CompletionService
 
-__all__ = ['CompletionService']
+from .categorizer import TaskCategorizer
+from .openai_service import OpenAIService
+
+__all__ = ['TaskCategorizer', 'OpenAIService']
