@@ -1,5 +1,14 @@
-"""Algolia search service module for semantic search functionality."""
+"""Algolia search integration module.
 
-from .service import AlgoliaService
+Provides high-level interface for Algolia search operations including:
+- Single and multi-index search
+- Object CRUD operations
+- Batch operations
+- Index management
+"""
 
-__all__ = ['AlgoliaService']
+from .algolia_service import AlgoliaService
+from .app import main
+
+__version__ = "1.0.0"
+__all__ = ["AlgoliaService", "main"]
