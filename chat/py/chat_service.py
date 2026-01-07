@@ -1,159 +1,153 @@
-"""Service for chat conversations with summarization."""
-from typing import List, Optional, Dict, Any
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletion
-from openai import OpenAI
+"""Chat service with conversation memory and summarization."""
+
+from typing import List, Optional
+from openai.types.chat import ChatCompletionMessageParam
+
+from .openai_service import OpenAIService
 
 
 class ChatService:
-    """Service for managing chat conversations with summarization."""
+    """Service for managing chat conversations with context."""
 
-    def __init__(self, openai_api_key: Optional[str] = None):
+    def __init__(self, openai_service: OpenAIService):
         """Initialize chat service.
-        
-        Args:
-            openai_api_key: OpenAI API key. If not provided, uses OPENAI_API_KEY env var.
-        """
-        self.client = OpenAI(api_key=openai_api_key)
-        self.previous_summarization = ""
 
-    async def generate_summarization(
+        Args:
+            openai_service: OpenAI service instance.
+        """
+        self.openai_service = openai_service
+        self.conversation_history: List[ChatCompletionMessageParam] = []
+        self.summarization: str = ""
+
+    async def get_response(
         self,
-        user_message: ChatCompletionMessageParam,
-        assistant_response: ChatCompletionMessageParam
+        user_message: str,
+        model: str = "gpt-4o",
+        temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
     ) -> str:
-        """Generate updated conversation summary.
-        
+        """Get chat response with context.
+
         Args:
             user_message: User's message.
-            assistant_response: Assistant's response.
-        
+            model: Model to use.
+            temperature: Temperature.
+            system_prompt: System prompt to use.
+
         Returns:
-            Updated conversation summary.
+            Assistant's response.
         """
-        current_turn = f"Adam: {user_message.get('content', '')}"
-        current_turn += f"""{assistant_response.get('content', '')}"""
+        # Build messages list
+        messages: List[ChatCompletionMessageParam] = []
+
+        # Add system prompt
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        else:
+            messages.append(self._create_default_system_prompt())
+
+        # Add conversation history
+        messages.extend(self.conversation_history)
+
+        # Add new user message
+        messages.append({"role": "user", "content": user_message})
+
+        # Get response
+        response = await self.openai_service.async_completion(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+        )
+
+        assistant_message = response.choices[0].message.content or ""
+
+        # Update conversation history
+        self.conversation_history.append({"role": "user", "content": user_message})
+        self.conversation_history.append(
+            {"role": "assistant", "content": assistant_message}
+        )
+
+        # Generate summarization
+        self.summarization = await self._generate_summarization(
+            user_message, assistant_message
+        )
+
+        return assistant_message
+
+    async def _generate_summarization(
+        self, user_message: str, assistant_message: str
+    ) -> str:
+        """Generate conversation summarization.
+
+        Args:
+            user_message: Last user message.
+            assistant_message: Last assistant response.
+
+        Returns:
+            Updated summarization.
+        """
+        current_turn = f"User: {user_message}\nAssistant: {assistant_message}"
 
         summarization_prompt: ChatCompletionMessageParam = {
-            'role': 'system',
-            'content': f'''Please summarize the following conversation in a concise manner,
-incorporating the previous summary if available:
-
-Previous summary: {self.previous_summarization or "No previous summary"}
+            "role": "system",
+            "content": f"""Please summarize the following conversation turn in a concise manner.
+            
+Previous summary: {self.summarization or "No previous summary"}
 
 Current turn:
 {current_turn}
 
-Adam: Please update our conversation summary.'''
+Provide an updated summary.""",
         }
 
-        response = self.client.chat.completions.create(
+        response = await self.openai_service.async_completion(
             messages=[summarization_prompt],
-            model='gpt-4o',
-            stream=False,
+            model="gpt-4o",
+            temperature=0.3,
         )
 
-        if isinstance(response, ChatCompletion):
-            return response.choices[0].message.content or 'No conversation history'
-        return 'Error generating summary'
+        return response.choices[0].message.content or ""
 
-    def create_system_prompt(self, summarization: str) -> ChatCompletionMessageParam:
-        """Create system prompt with conversation context.
-        
-        Args:
-            summarization: Conversation summary.
-        
-        Returns:
-            System message with context.
-        """
-        content = '''You are Alice, a helpful assistant who speaks using as few words as possible.
-'''
-        
-        if summarization:
-            content += f'''\nHere is a summary of the conversation so far:
-<summary>{summarization}</summary>'''
-        
-        content += '\n\nLet\'s chat!'
-        
-        return {'role': 'system', 'content': content}
+    def _create_default_system_prompt(self) -> ChatCompletionMessageParam:
+        """Create default system prompt.
 
-    async def chat(self, message: Dict[str, str]) -> ChatCompletion:
-        """Handle single chat message.
-        
-        Args:
-            message: Message dict with 'content' key.
-        
         Returns:
-            ChatCompletion response.
+            System prompt message.
         """
-        user_msg: ChatCompletionMessageParam = {
-            'role': 'user',
-            'content': message.get('message', '')
+        return {
+            "role": "system",
+            "content": f"""You are a helpful assistant who speaks using as few words as possible.
+
+{f'Conversation context: {self.summarization}' if self.summarization else ''}
+
+Let's chat!""",
         }
-        
-        system_prompt = self.create_system_prompt(self.previous_summarization)
-        
-        response = self.client.chat.completions.create(
-            messages=[system_prompt, user_msg],
-            model='gpt-4o',
-            stream=False,
-        )
 
-        if not isinstance(response, ChatCompletion):
-            raise ValueError('Expected ChatCompletion, got streaming response')
-        
-        assistant_response: ChatCompletionMessageParam = {
-            'role': 'assistant',
-            'content': response.choices[0].message.content or ''
-        }
-        
-        # Generate new summarization
-        self.previous_summarization = await self.generate_summarization(
-            user_msg,
-            assistant_response
-        )
-        
-        return response
+    def get_history(self) -> List[ChatCompletionMessageParam]:
+        """Get conversation history.
 
-    async def demo(self) -> Optional[ChatCompletion]:
-        """Run demo conversation.
-        
         Returns:
-            Final assistant response.
+            Conversation history.
         """
-        demo_messages: List[ChatCompletionMessageParam] = [
-            {'content': "Hi! I'm Adam", 'role': 'user'},
-            {'content': 'How are you?', 'role': 'user'},
-            {'content': 'Do you know my name?', 'role': 'user'}
-        ]
+        return self.conversation_history.copy()
 
-        assistant_response: Optional[ChatCompletion] = None
+    def get_summarization(self) -> str:
+        """Get current summarization.
 
-        for message in demo_messages:
-            print(f'--- NEXT TURN ---')
-            print(f"Adam: {message.get('content')}")
+        Returns:
+            Conversation summarization.
+        """
+        return self.summarization
 
-            system_prompt = self.create_system_prompt(self.previous_summarization)
-            
-            response = self.client.chat.completions.create(
-                messages=[system_prompt, message],
-                model='gpt-4o',
-                stream=False,
-            )
+    def clear_history(self) -> None:
+        """Clear conversation history."""
+        self.conversation_history = []
+        self.summarization = ""
 
-            if not isinstance(response, ChatCompletion):
-                raise ValueError('Expected ChatCompletion')
+    def set_summarization(self, summarization: str) -> None:
+        """Set custom summarization.
 
-            assistant_response = response
-            print(f"Alice: {response.choices[0].message.content}")
-
-            # Generate new summarization
-            assistant_msg: ChatCompletionMessageParam = {
-                'role': 'assistant',
-                'content': response.choices[0].message.content or ''
-            }
-            self.previous_summarization = await self.generate_summarization(
-                message,
-                assistant_msg
-            )
-
-        return assistant_response
+        Args:
+            summarization: New summarization.
+        """
+        self.summarization = summarization
