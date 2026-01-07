@@ -1,6 +1,14 @@
-"""Embedding and vector search services."""
-from .openai_service import OpenAIService
-from .text_service import TextSplitter, IDoc
+"""Embedding and semantic search module.
+
+Provides:
+- Text embeddings
+- Semantic similarity
+- Vector search
+- Collection management
+"""
+
+from .embedding_service import EmbeddingService
 from .vector_service import VectorService
 
-__all__ = ['OpenAIService', 'TextSplitter', 'IDoc', 'VectorService']
+__version__ = "1.0.0"
+__all__ = ["EmbeddingService", "VectorService"]

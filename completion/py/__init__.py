@@ -1,6 +1,12 @@
-"""Task completion and categorization service."""
+"""Task completion and routing module.
 
-from .categorizer import TaskCategorizer
-from .openai_service import OpenAIService
+Provides:
+- Intent detection and categorization
+- Task routing
+- Completion scoring
+"""
 
-__all__ = ['TaskCategorizer', 'OpenAIService']
+from .completion_service import CompletionService
+
+__version__ = "1.0.0"
+__all__ = ["CompletionService"]

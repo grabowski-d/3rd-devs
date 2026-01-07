@@ -1,129 +1,107 @@
-"""Context service for document retrieval and insertion."""
+"""Context management service."""
 
-import re
-import uuid
-from typing import Dict, List, Optional
-from openai.types.chat import ChatCompletionMessageParam
+import logging
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
+from datetime import datetime
 
-from .openai_service import OpenAIService
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ContextItem:
+    """Single context item."""
+    key: str
+    value: Any
+    importance: float = 1.0
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    expires_at: Optional[str] = None
 
 
 class ContextService:
-    """Service for managing document context with placeholder insertion."""
+    """Service for managing application context."""
 
-    def __init__(self, openai_service: OpenAIService):
+    def __init__(self, max_items: int = 100):
         """Initialize context service.
-
+        
         Args:
-            openai_service: OpenAI service instance.
+            max_items: Maximum items to store
         """
-        self.openai_service = openai_service
-        self.documents: Dict[str, str] = {}
-        self.document_metadata: Dict[str, Dict[str, str]] = {}
+        self.context: Dict[str, ContextItem] = {}
+        self.max_items = max_items
+        logger.info(f"Initialized context service (max {max_items} items)")
 
-    def add_document(
+    def set(
         self,
-        content: str,
-        title: str,
-        doc_uuid: Optional[str] = None,
-    ) -> str:
-        """Add document to context store.
-
+        key: str,
+        value: Any,
+        importance: float = 1.0,
+        expires_at: Optional[str] = None,
+    ) -> None:
+        """Set context value.
+        
         Args:
-            content: Document content.
-            title: Document title.
-            doc_uuid: Optional UUID. Generated if not provided.
-
-        Returns:
-            Document UUID.
+            key: Context key
+            value: Context value
+            importance: Importance score 0-1
+            expires_at: ISO datetime when context expires
         """
-        doc_uuid = doc_uuid or str(uuid.uuid4())
-        self.documents[doc_uuid] = content
-        self.document_metadata[doc_uuid] = {"title": title}
-        return doc_uuid
-
-    def get_document(self, doc_uuid: str) -> Optional[str]:
-        """Get document by UUID.
-
-        Args:
-            doc_uuid: Document UUID.
-
-        Returns:
-            Document content or None.
-        """
-        return self.documents.get(doc_uuid)
-
-    def list_documents(self) -> List[Dict[str, str]]:
-        """List all documents.
-
-        Returns:
-            List of document metadata with UUIDs.
-        """
-        return [
-            {"uuid": uuid_key, **metadata}
-            for uuid_key, metadata in self.document_metadata.items()
-        ]
-
-    def create_system_prompt(self) -> str:
-        """Create system prompt with available documents.
-
-        Returns:
-            System prompt with document list.
-        """
-        doc_list = "\n".join(
-            f"  - {metadata['title']}: {doc_uuid}"
-            for doc_uuid, metadata in self.document_metadata.items()
+        if len(self.context) >= self.max_items:
+            # Remove least important item
+            min_key = min(
+                self.context.keys(),
+                key=lambda k: self.context[k].importance,
+            )
+            del self.context[min_key]
+        
+        self.context[key] = ContextItem(
+            key=key,
+            value=value,
+            importance=importance,
+            expires_at=expires_at,
         )
+        logger.debug(f"Set context: {key}")
 
-        return f"""As an AI assistant, you can use the following documents in your responses 
-by referencing them with the placeholder: [[uuid]] (double square brackets).
-
-<rule>
-- Placeholder is double square brackets. Make sure to use it correctly.
-- Documents are long forms of text, so use them naturally within the text.
-- Format: "here's your content: \n\n [[uuid]] \n\n".
-</rule>
-
-<available_documents>
-{doc_list or "No documents available"}
-</available_documents>"""
-
-    async def query(
-        self,
-        query: str,
-        system_prompt: Optional[str] = None,
-    ) -> str:
-        """Query documents with context.
-
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get context value.
+        
         Args:
-            query: User query.
-            system_prompt: Optional custom system prompt.
-
+            key: Context key
+            default: Default value if not found
+            
         Returns:
-            Response with document placeholders replaced.
+            Context value or default
         """
-        system = system_prompt or self.create_system_prompt()
+        item = self.context.get(key)
+        if item:
+            # Check expiration
+            if item.expires_at:
+                expires = datetime.fromisoformat(item.expires_at)
+                if datetime.now() > expires:
+                    del self.context[key]
+                    return default
+            return item.value
+        return default
 
-        messages: List[ChatCompletionMessageParam] = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": query},
-        ]
+    def get_all(self) -> Dict[str, Any]:
+        """Get all context values.
+        
+        Returns:
+            Dictionary of all context
+        """
+        return {k: v.value for k, v in self.context.items()}
 
-        completion = await self.openai_service.completion(
-            messages=messages,
-        )
+    def clear(self) -> None:
+        """Clear all context."""
+        self.context.clear()
+        logger.info("Cleared context")
 
-        answer = completion.choices[0].message.content or ""
-
-        # Replace placeholders with actual documents
-        def replace_placeholder(match) -> str:
-            doc_uuid = match.group(1)
-            return self.documents.get(doc_uuid, match.group(0))
-
-        answer = re.sub(r"\[\[([^\]]+)\]\]", replace_placeholder, answer)
-        return answer
-
-    def clear_documents(self) -> None:
-        """Clear all documents."""
-        self.documents.clear()
-        self.document_metadata.clear()
+    def delete(self, key: str) -> None:
+        """Delete context key.
+        
+        Args:
+            key: Key to delete
+        """
+        if key in self.context:
+            del self.context[key]
+            logger.debug(f"Deleted context: {key}")

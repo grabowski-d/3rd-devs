@@ -1,6 +1,12 @@
-"""Document context management service."""
+"""Context management module.
+
+Handles:
+- Context storage and retrieval
+- Context compression
+- Relevance scoring
+"""
 
 from .context_service import ContextService
-from .openai_service import OpenAIService
 
-__all__ = ['ContextService', 'OpenAIService']
+__version__ = "1.0.0"
+__all__ = ["ContextService"]
