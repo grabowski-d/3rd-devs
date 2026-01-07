@@ -1,10 +1,13 @@
-"""Embedding Example App - Python implementation of embedding/app.ts"""
+"""Demo application for embeddings and vector search."""
 import asyncio
 from openai_service import OpenAIService
 from text_service import TextSplitter
 from vector_service import VectorService
 
-data = [
+
+COLLECTION_NAME = 'aidevs'
+
+DATA = [
     'Apple (Consumer Electronics)',
     'Tesla (Automotive)',
     'Microsoft (Software)',
@@ -14,42 +17,45 @@ data = [
     'X Corp (Social Media)',
     'Tech•sistence (Newsletter)'
 ]
-queries = ['Car company', 'Macbooks', 'Facebook', 'Newsletter']
 
-COLLECTION_NAME = "aidevs"
+QUERIES = ['Car company', 'Macbooks', 'Facebook', 'Newsletter']
 
-open_ai = OpenAIService()
-vector_service = VectorService(open_ai)
-text_splitter = TextSplitter()
 
-async def initialize_data():
+async def initialize_data(openai_service: OpenAIService, vector_service: VectorService):
+    """Initialize vector database with data."""
+    text_splitter = TextSplitter()
+    
     points = []
-    for text in data:
+    for text in DATA:
         doc = await text_splitter.document(text, 'gpt-4', {'role': 'embedding-test'})
-        points.append(doc.__dict__ if hasattr(doc, '__dict__') else {'text': doc.text, 'metadata': doc.metadata})
+        points.append({
+            'text': doc.text,
+            'metadata': doc.metadata
+        })
     
     await vector_service.initialize_collection_with_data(COLLECTION_NAME, points)
 
+
 async def main():
-    await initialize_data()
+    """Run demo embedding and search."""
+    openai_service = OpenAIService()
+    vector_service = VectorService(openai_service)
     
-    search_results = []
-    for query in queries:
-        result = await vector_service.perform_search(COLLECTION_NAME, query, 3)
-        search_results.append(result)
+    # Initialize data
+    await initialize_data(openai_service, vector_service)
     
-    for query, results in zip(queries, search_results):
-        print(f"Query: {query}")
-        for idx, result in enumerate(results, 1):
-            text = result.payload.get('text') if hasattr(result, 'payload') else result.get('text')
-            score = result.score if hasattr(result, 'score') else result.get('score')
-            print(f"  {idx}. {text} (Score: {score})")
+    # Perform searches
+    print(f'Searching in collection: {COLLECTION_NAME}\n')
+    for query in QUERIES:
+        results = await vector_service.perform_search(COLLECTION_NAME, query, limit=3)
+        
+        print(f'Query: {query}')
+        for i, result in enumerate(results, 1):
+            text = result['payload'].get('text', 'N/A')
+            score = result.get('score', 0)
+            print(f'  {i}. {text} (Score: {score:.4f})')
         print()
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as error:
-        print(f"Error: {error}")
-        import traceback
-        traceback.print_exc()
+
+if __name__ == '__main__':
+    asyncio.run(main())
