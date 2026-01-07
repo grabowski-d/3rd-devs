@@ -1,7 +1,72 @@
-.DS_Store
+# Environment
 .env
-evaluation_basics/.env
-.idea/
-node_modules/
-**/*.db
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+PIPFILE.lock
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+db.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Node modules (if any JS)
+node_modules/
+
+# API data
+points.json
+training_data.jsonl
+validation_data.jsonl
