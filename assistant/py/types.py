@@ -1,34 +1,35 @@
-"""Type definitions for assistant service."""
+"""Type definitions for assistant module."""
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 
 
-class MessageParam(TypedDict, total=False):
-    """Chat completion message parameter."""
+@dataclass
+class ActionResult:
+    """Result of an action execution."""
+    status: str
+    data: Any
 
-    role: Literal["system", "user", "assistant"]
-    content: str
 
-
-class MemoryCategory(TypedDict):
-    """Memory category definition."""
-
+@dataclass
+class MemoryCategory:
+    """Category for organizing memories."""
     name: str
     description: str
 
 
-class Tool(TypedDict):
-    """Tool definition."""
-
+@dataclass
+class Tool:
+    """Tool available for the assistant."""
     name: str
     description: str
-    instruction: str
+    instruction: str = ""
 
 
-class Config(TypedDict):
-    """Configuration for agent."""
-
+@dataclass
+class Config:
+    """Assistant configuration."""
     max_steps: int
     step: int
     task: Optional[str]
@@ -37,81 +38,99 @@ class Config(TypedDict):
     username: str
     environment: str
     personality: str
-    memory_categories: List[MemoryCategory]
-    tools: List[Tool]
+    memory_categories: List[MemoryCategory] = field(default_factory=list)
+    tools: List[Tool] = field(default_factory=list)
 
 
-class ActionResult(TypedDict):
-    """Result from action execution."""
-
-    status: str
-    data: Any
-
-
-class Action(TypedDict):
+@dataclass
+class Action:
     """Action to be executed."""
-
     uuid: str
     task_uuid: str
     name: str
     tool_name: str
-    payload: Dict[str, Any]
-    result: Optional[ActionResult]
-    status: Literal["pending", "completed", "failed"]
-    sequence: int
-    description: str
-    created_at: str
-    updated_at: str
+    payload: Dict[str, Any] = field(default_factory=dict)
+    result: Optional[ActionResult] = None
+    status: Literal["pending", "completed", "failed"] = "pending"
+    sequence: int = 0
+    description: str = ""
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
-class Task(TypedDict):
-    """Task to be planned and executed."""
-
+@dataclass
+class Task:
+    """Task to be completed."""
     uuid: str
     conversation_uuid: str
-    status: Literal["pending", "completed", "failed"]
     name: str
     description: str
-    actions: List[Action]
-    created_at: str
-    updated_at: str
+    status: Literal["pending", "completed", "failed"] = "pending"
+    actions: List[Action] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
-class Document(TypedDict):
-    """Document in conversation context."""
-
+@dataclass
+class Document:
+    """Document stored in the assistant."""
     uuid: str
     conversation_uuid: str
     text: str
-    metadata: Dict[str, Any]
-    created_at: str
-    updated_at: str
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
-class Memory(TypedDict):
-    """Memory entry."""
-
+@dataclass
+class Memory:
+    """Memory item for the assistant."""
     name: str
     category: str
     content: str
 
 
-class Thoughts(TypedDict):
-    """Agent thoughts from thinking phase."""
+@dataclass
+class Thoughts:
+    """Thoughts from reasoning phases."""
+    environment: str = ""
+    personality: str = ""
+    memory: str = ""
+    tools: str = ""
 
-    environment: str
-    personality: str
-    memory: str
-    tools: str
 
-
-class State(TypedDict):
-    """Complete state of the agent."""
-
+@dataclass
+class State:
+    """Complete state of the assistant."""
     config: Config
     thoughts: Thoughts
-    tasks: List[Task]
-    documents: List[Document]
-    memories: List[Memory]
-    tools: List[Tool]
-    messages: List[MessageParam]
+    tasks: List[Task] = field(default_factory=list)
+    documents: List[Document] = field(default_factory=list)
+    memories: List[Memory] = field(default_factory=list)
+    tools: List[Tool] = field(default_factory=list)
+    messages: List[Dict[str, str]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert state to dictionary for JSON serialization."""
+        return {
+            "config": {
+                "max_steps": self.config.max_steps,
+                "step": self.config.step,
+                "task": self.config.task,
+                "action": self.config.action,
+                "ai_name": self.config.ai_name,
+                "username": self.config.username,
+                "environment": self.config.environment,
+                "personality": self.config.personality,
+            },
+            "thoughts": {
+                "environment": self.thoughts.environment,
+                "personality": self.thoughts.personality,
+                "memory": self.thoughts.memory,
+                "tools": self.thoughts.tools,
+            },
+            "tasks": len(self.tasks),
+            "documents": len(self.documents),
+            "memories": len(self.memories),
+            "messages": len(self.messages),
+        }

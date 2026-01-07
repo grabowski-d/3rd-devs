@@ -1,151 +1,166 @@
-"""Example application using AssistantService with thinking-planning-action loop."""
+"""Example application using Assistant service."""
 
 import asyncio
 import json
-from datetime import datetime
+import logging
+from typing import Dict, Any
+from uuid import uuid4
 
-from .service import AssistantService
-from .types import (
-    Action,
-    Config,
-    Memory,
-    MessageParam,
+from types import (
     State,
-    Task,
-    Thoughts,
+    Config,
     Tool,
+    MemoryCategory,
+    Memory,
+    Thoughts,
+    ActionResult,
 )
+from assistant_service import AssistantService
+from openai_service import OpenAIService
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-async def main():
-    """Run example assistant application."""
+async def mock_tool_handler(tool_name: str, payload: Dict[str, Any]) -> ActionResult:
+    """Mock tool handler for demonstration."""
+    if tool_name == "spotify":
+        return ActionResult(
+            status="success",
+            data=f"Now playing: {payload.get('play', 'Unknown')}" 
+        )
+    elif tool_name == "google":
+        return ActionResult(
+            status="success",
+            data=f"Search results for: {payload.get('search', 'query')}"
+        )
+    elif tool_name == "memory":
+        return ActionResult(
+            status="success",
+            data={
+                "name": "Favorite songs",
+                "category": "profiles",
+                "content": "AC/DC, Queen, Led Zeppelin, Guns N' Roses, Nirvana"
+            }
+        )
+    elif tool_name == "final_answer":
+        return ActionResult(
+            status="success",
+            data=payload.get("answer", "No answer provided")
+        )
+    else:
+        return ActionResult(
+            status="error",
+            data=f"Unknown tool: {tool_name}"
+        )
 
-    # Initialize service
-    assistant = AssistantService()
 
-    # Define tool handlers
-    def memory_handler(payload: dict) -> dict:
-        """Handle memory lookup."""
-        return {"status": "success", "data": f"Found memory for: {payload.get('query')}"}
+async def main() -> None:
+    """Main application function."""
+    logger.info("Starting assistant example")
 
-    def spotify_handler(payload: dict) -> dict:
-        """Handle Spotify playback."""
-        return {
-            "status": "success",
-            "data": f"Now playing: {payload.get('play', 'unknown')}",
-        }
-
-    def final_answer_handler(payload: dict) -> dict:
-        """Handle final answer."""
-        return {"status": "success", "data": payload.get("answer", "")}
-
-    # Register handlers
-    assistant.register_tool_handler("memory", memory_handler)
-    assistant.register_tool_handler("spotify", spotify_handler)
-    assistant.register_tool_handler("final_answer", final_answer_handler)
-
-    # Initialize state
+    # Memory categories
     memory_categories = [
-        {
-            "name": "profiles",
-            "description": "Profiles of people you know",
-        },
-        {
-            "name": "resources",
-            "description": "Learning materials and references",
-        },
-        {"name": "tasks", "description": "User tasks"},
-        {"name": "events", "description": "Events and meetings"},
+        MemoryCategory(
+            name="profiles",
+            description="Profiles of people you know"
+        ),
+        MemoryCategory(
+            name="resources",
+            description="Learning materials and references"
+        ),
+        MemoryCategory(
+            name="tasks",
+            description="Tasks from the user"
+        ),
+        MemoryCategory(
+            name="events",
+            description="Past or upcoming events"
+        ),
     ]
 
-    tools: list[Tool] = [
-        {
-            "name": "spotify",
-            "description": "Use this to play music",
-            "instruction": 'Write {"play": "<song name>"}',
-        },
-        {
-            "name": "google",
-            "description": "Use this to search the web",
-            "instruction": 'Write {"search": "<query>"}',
-        },
-        {
-            "name": "memory",
-            "description": "Use this to search your memory",
-            "instruction": 'Write {"memory": "<memory name>"}',
-        },
-        {
-            "name": "final_answer",
-            "description": "Use this to answer the user",
-            "instruction": 'Write {"answer": "<answer>"}',
-        },
+    # Available tools
+    tools = [
+        Tool(
+            name="spotify",
+            description="Use this to play music and search for songs",
+            instruction='Write {"play": "<song name>"}'
+        ),
+        Tool(
+            name="google",
+            description="Use this to search the web",
+            instruction='Write {"search": "<query>"}'
+        ),
+        Tool(
+            name="memory",
+            description="Use this to search your memory",
+            instruction='Write {"memory": "<memory name>"}'
+        ),
+        Tool(
+            name="final_answer",
+            description="Use this to answer the user",
+            instruction='Write {"answer": "<answer>"}'
+        ),
     ]
 
-    config: Config = {
-        "max_steps": 10,
-        "step": 0,
-        "task": None,
-        "action": None,
-        "ai_name": "Alice",
-        "username": "Adam",
-        "environment": "Krakow, Poland. Sunny. 20°C. At home.",
-        "personality": "Friendly, curious, and helpful AI assistant.",
-        "memory_categories": memory_categories,
-        "tools": tools,
-    }
-
-    thoughts: Thoughts = {
-        "environment": "",
-        "personality": "",
-        "memory": "",
-        "tools": "",
-    }
-
-    memories: list[Memory] = [
-        {
-            "name": "Favorite songs",
-            "category": "profiles",
-            "content": "AC/DC — Back in Black, Queen — Bohemian Rhapsody",
-        },
-        {
-            "name": "Learning goals",
-            "category": "tasks",
-            "content": "Complete AI development course",
-        },
+    # Initial memories
+    memories = [
+        Memory(
+            name="Favorite songs",
+            category="profiles",
+            content="AC/DC — Back in Black, Queen — Bohemian Rhapsody"
+        ),
+        Memory(
+            name="Finish S05E02",
+            category="tasks",
+            content="Complete the lesson"
+        ),
     ]
 
-    state: State = {
-        "config": config,
-        "thoughts": thoughts,
-        "tasks": [],
-        "documents": [],
-        "memories": memories,
-        "tools": tools,
-        "messages": [],
-    }
+    # Create config
+    config = Config(
+        max_steps=10,
+        step=0,
+        task=None,
+        action=None,
+        ai_name="Alice",
+        username="Adam",
+        environment="Krakow, Poland. Sunny. 20°C. At home.",
+        personality="You're curious and happy to chat. You love AI and music.",
+        memory_categories=memory_categories,
+        tools=tools,
+    )
 
-    # Execute the loop
+    # Create initial state
+    state = State(
+        config=config,
+        thoughts=Thoughts(),
+        memories=memories,
+        tools=tools,
+    )
+
+    # Create services
+    openai_service = OpenAIService()
+    assistant = AssistantService(state, openai_service)
+
+    # Register tool handlers
+    for tool in tools:
+        assistant.register_tool_handler(
+            tool.name,
+            lambda payload, t=tool.name: mock_tool_handler(t, payload)
+        )
+
+    # Execute the assistant loop
     user_message = "Play my favorite music"
-    print(f"\n{'='*60}")
-    print(f"User Message: {user_message}")
-    print(f"{'='*60}")
+    logger.info(f"User message: {user_message}")
 
-    state = await assistant.execute_loop(state, user_message)
-
-    # Print final state
-    print("\n=== Final State ===")
-    print(json.dumps(
-        {
-            "ai_name": state["config"]["ai_name"],
-            "username": state["config"]["username"],
-            "messages_count": len(state["messages"]),
-            "tasks_completed": sum(
-                1 for t in state["tasks"] if t["status"] == "completed"
-            ),
-            "memories_recalled": len(state["memories"]),
-        },
-        indent=2,
-    ))
+    try:
+        final_state = await assistant.execute_loop(user_message, max_steps=5)
+        logger.info("Assistant loop completed")
+        logger.info(f"Final state: {json.dumps(final_state.to_dict(), indent=2)}")
+    except Exception as e:
+        logger.error(f"Error executing assistant loop: {e}")
+        raise
 
 
 if __name__ == "__main__":

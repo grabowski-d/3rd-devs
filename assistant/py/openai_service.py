@@ -1,23 +1,39 @@
-"""OpenAI service for handling chat completions and AI interactions."""
+"""OpenAI integration for assistant module."""
 
-from typing import Any, AsyncGenerator, Dict, List, Optional, Union
-from openai import AsyncOpenAI, OpenAI
-from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessageParam
-import os
+import logging
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional, Union
+
+try:
+    import openai
+    from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessageParam
+except ImportError:
+    openai = None
+    ChatCompletion = None
+    ChatCompletionChunk = None
+    ChatCompletionMessageParam = None
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIService:
-    """Service for interacting with OpenAI API."""
+    """OpenAI API wrapper for chat completions."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None) -> None:
         """Initialize OpenAI service.
 
         Args:
-            api_key: OpenAI API key. Defaults to OPENAI_API_KEY environment variable.
+            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
         """
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=self.api_key)
-        self.async_client = AsyncOpenAI(api_key=self.api_key)
+        if not openai:
+            raise ImportError(
+                "openai package is required. Install with: pip install openai"
+            )
+        
+        if api_key:
+            openai.api_key = api_key
+        
+        self.client = openai.OpenAI()
+        logger.info("Initialized OpenAI service")
 
     async def completion(
         self,
@@ -26,101 +42,67 @@ class OpenAIService:
         stream: bool = False,
         json_mode: bool = False,
         max_tokens: int = 8096,
-    ) -> Union[ChatCompletion, AsyncGenerator[ChatCompletionChunk, None]]:
+    ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
         """Get completion from OpenAI.
 
         Args:
-            messages: List of chat messages.
-            model: Model ID to use. Defaults to "gpt-4o".
-            stream: Whether to stream the response. Defaults to False.
-            json_mode: Whether to use JSON mode for structured output. Defaults to False.
-            max_tokens: Maximum tokens to generate. Defaults to 8096.
+            messages: List of message dicts with role and content
+            model: Model to use (default: gpt-4o)
+            stream: Whether to stream the response
+            json_mode: Whether to use JSON mode
+            max_tokens: Maximum tokens in response
 
         Returns:
-            ChatCompletion or async generator of ChatCompletionChunk depending on stream.
-
-        Raises:
-            ValueError: If API key is not configured.
+            ChatCompletion or async iterator of chunks if streaming
         """
-        if not self.api_key:
-            raise ValueError("OpenAI API key not configured")
-
         try:
-            # Some models don't support certain parameters
-            supports_features = model not in ("o1-mini", "o1-preview")
-
-            response_format = None
-            if json_mode and supports_features:
-                response_format = {"type": "json_object"}
-            elif supports_features:
-                response_format = {"type": "text"}
-
-            params = {
-                "messages": messages,
-                "model": model,
-            }
-
-            if supports_features:
-                params["stream"] = stream
-                params["max_tokens"] = max_tokens
-                if response_format:
-                    params["response_format"] = response_format
-
-            response = self.client.chat.completions.create(**params)
-
+            # o1 models don't support streaming, json_mode, or max_tokens
+            is_o1_model = model in ("o1-mini", "o1-preview")
+            
+            if is_o1_model:
+                response = self.client.chat.completions.create(
+                    messages=messages,
+                    model=model,
+                )
+            else:
+                response = self.client.chat.completions.create(
+                    messages=messages,
+                    model=model,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"} if json_mode else {"type": "text"},
+                )
+            
+            logger.debug(f"Completion request sent to {model}")
             return response
-
-        except Exception as error:
-            print(f"Error in OpenAI completion: {error}")
+        except Exception as e:
+            logger.error(f"Error in OpenAI completion: {e}")
             raise
 
-    async def async_completion(
+    def completion_sync(
         self,
         messages: List[ChatCompletionMessageParam],
         model: str = "gpt-4o",
         stream: bool = False,
         json_mode: bool = False,
         max_tokens: int = 8096,
-    ) -> Union[ChatCompletion, AsyncGenerator[ChatCompletionChunk, None]]:
-        """Get async completion from OpenAI.
+    ) -> Union[ChatCompletion, Iterator[ChatCompletionChunk]]:
+        """Synchronous wrapper for completion.
 
         Args:
-            messages: List of chat messages.
-            model: Model ID to use. Defaults to "gpt-4o".
-            stream: Whether to stream the response. Defaults to False.
-            json_mode: Whether to use JSON mode for structured output. Defaults to False.
-            max_tokens: Maximum tokens to generate. Defaults to 8096.
+            messages: List of message dicts with role and content
+            model: Model to use (default: gpt-4o)
+            stream: Whether to stream the response
+            json_mode: Whether to use JSON mode
+            max_tokens: Maximum tokens in response
 
         Returns:
-            ChatCompletion or async generator of ChatCompletionChunk depending on stream.
+            ChatCompletion or iterator of chunks if streaming
         """
-        if not self.api_key:
-            raise ValueError("OpenAI API key not configured")
-
-        try:
-            supports_features = model not in ("o1-mini", "o1-preview")
-
-            response_format = None
-            if json_mode and supports_features:
-                response_format = {"type": "json_object"}
-            elif supports_features:
-                response_format = {"type": "text"}
-
-            params = {
-                "messages": messages,
-                "model": model,
-            }
-
-            if supports_features:
-                params["stream"] = stream
-                params["max_tokens"] = max_tokens
-                if response_format:
-                    params["response_format"] = response_format
-
-            response = await self.async_client.chat.completions.create(**params)
-
-            return response
-
-        except Exception as error:
-            print(f"Error in async OpenAI completion: {error}")
-            raise
+        return self.completion(
+            messages=messages,
+            model=model,
+            stream=stream,
+            json_mode=json_mode,
+            max_tokens=max_tokens,
+        )
