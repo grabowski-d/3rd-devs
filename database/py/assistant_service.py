@@ -1,32 +1,44 @@
-"""Assistant Service - Python implementation of database/AssistantService.ts"""
+"""Assistant service for handling conversations."""
+from typing import Dict, Any, List, Optional
 import uuid
-from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from .database_service import DatabaseService
 from .openai_service import OpenAIService
-from .langfuse_service import LangfuseService
-
-
-@dataclass
-class ParsingError:
-    error: str
-    result: bool
+from .langfuse_service import LangfuseService, LangfuseTraceClient
 
 
 @dataclass
 class ShouldLearnResponse:
-    _thinking: str
-    add: Optional[List[str]] = None
-    update: Optional[List[Dict[str, str]]] = None
+    """Response for learning decision."""
+    thinking: str
+    add: List[str] = None
+    update: List[Dict[str, str]] = None
+
+
+@dataclass
+class ParsingError:
+    """Error response structure."""
+    error: str
+    result: bool = False
 
 
 class AssistantService:
+    """Service for handling assistant conversations."""
+
     def __init__(
         self,
         database_service: DatabaseService,
         openai_service: OpenAIService,
         langfuse_service: LangfuseService
     ):
+        """Initialize assistant service.
+        
+        Args:
+            database_service: Database service instance.
+            openai_service: OpenAI service instance.
+            langfuse_service: Langfuse service instance.
+        """
         self.database_service = database_service
         self.openai_service = openai_service
         self.langfuse_service = langfuse_service
@@ -34,92 +46,108 @@ class AssistantService:
     async def answer(
         self,
         config: Dict[str, Any],
-        trace: Any
-    ) -> Dict[str, Any]:
-        """
-        Process a chat message and save it along with the response.
+        trace: LangfuseTraceClient
+    ) -> ChatCompletion:
+        """Generate an answer to user message.
         
         Args:
-            config: Configuration dict with keys:
-                - conversation_id: str
-                - messages: List[Dict] with role and content
-                - model: Optional[str]
-                - stream: Optional[bool]
-                - jsonMode: Optional[bool]
-                - maxTokens: Optional[int]
-            trace: Langfuse trace object
-            
+            config: Configuration dict with:
+                - conversation_id: Conversation ID
+                - messages: List of chat messages
+                - model: Optional model name
+                - stream: Optional stream flag
+                - jsonMode: Optional JSON mode flag
+                - maxTokens: Optional max tokens
+            trace: Langfuse trace client for observability.
+        
         Returns:
-            OpenAI completion response
+            ChatCompletion response.
         """
         messages = config.get('messages', [])
         conversation_id = config.get('conversation_id')
-        
-        # Extract user message
-        user_message = 'No content'
-        if messages and len(messages) > 0:
-            last_message = messages[-1]
-            user_message = last_message.get('content', 'No content')
-        
-        # Save user message to database
+
+        # Get last user message
+        user_message = ''
+        if messages:
+            last_msg = messages[-1]
+            user_message = last_msg.get('content', '') if isinstance(last_msg, dict) else ''
+
+        # Insert user message to database
         await self.database_service.insert_message({
             'uuid': str(uuid.uuid4()),
             'conversation_id': conversation_id,
             'content': user_message,
             'role': 'user'
         })
-        
-        # Get prompt from Langfuse
-        prompt = await self.langfuse_service.get_prompt('Answer', 1)
-        system_message = prompt.compile()[0]
-        
-        # Prepare thread with system message
-        thread = [system_message]
-        thread.extend([msg for msg in messages if msg.get('role') != 'system'])
-        
-        # Create generation for tracing
-        rest_config = {k: v for k, v in config.items() if k not in ['messages', 'conversation_id']}
+
+        # Get system prompt from Langfuse
+        try:
+            prompt = await self.langfuse_service.get_prompt('Answer', 1)
+            system_message = prompt.compile()
+        except Exception:
+            system_message = 'You are a helpful assistant.'
+
+        # Build message thread
+        thread: List[ChatCompletionMessageParam] = []
+        if isinstance(system_message, str):
+            thread.append({'role': 'system', 'content': system_message})
+        elif isinstance(system_message, list):
+            thread.extend(system_message)
+
+        # Add non-system messages from input
+        for msg in messages:
+            if msg.get('role') != 'system':
+                thread.append(msg)
+
+        # Create generation tracking
         generation = self.langfuse_service.create_generation(
-            trace, "Answer", thread, prompt, **rest_config
+            trace,
+            'Answer',
+            thread,
+            None,
+            {k: v for k, v in config.items() if k not in ['messages', 'conversation_id']}
         )
-        
+
         try:
             # Get completion from OpenAI
             completion = await self.openai_service.completion({
-                **rest_config,
+                **config,
                 'messages': thread
             })
-            
-            answer = completion.get('choices', [{}])[0].get('message', {}).get('content', 'No response')
-            
-            # Save assistant response to database
+
+            if not isinstance(completion, ChatCompletion):
+                raise ValueError('Expected ChatCompletion, got streaming response')
+
+            # Extract answer
+            answer = completion.choices[0].message.content or 'No response'
+
+            # Store assistant message
             await self.database_service.insert_message({
                 'uuid': str(uuid.uuid4()),
                 'conversation_id': conversation_id,
                 'content': answer,
                 'role': 'assistant'
             })
-            
-            # Finalize generation tracing
-            usage = completion.get('usage', {})
+
+            # Finalize generation in Langfuse
             self.langfuse_service.finalize_generation(
                 generation,
-                completion.get('choices', [{}])[0].get('message'),
-                completion.get('model', 'unknown'),
+                completion.choices[0].message,
+                completion.model,
                 {
-                    'promptTokens': usage.get('prompt_tokens'),
-                    'completionTokens': usage.get('completion_tokens'),
-                    'totalTokens': usage.get('total_tokens')
+                    'promptTokens': completion.usage.prompt_tokens if completion.usage else 0,
+                    'completionTokens': completion.usage.completion_tokens if completion.usage else 0,
+                    'totalTokens': completion.usage.total_tokens if completion.usage else 0,
                 }
             )
-            
+
             return completion
-            
+
         except Exception as error:
-            error_msg = str(error) if isinstance(error, Exception) else str(error)
+            # Track error in generation
             self.langfuse_service.finalize_generation(
                 generation,
-                {'error': error_msg},
+                {'error': str(error)},
                 'unknown'
             )
             raise
