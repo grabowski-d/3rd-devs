@@ -1,1 +1,1 @@
-"""Neo4j module."""
+"""Neo4j graph database service."""

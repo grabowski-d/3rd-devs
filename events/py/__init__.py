@@ -1,1 +1,1 @@
-"""Events module."""
+"""Event service."""

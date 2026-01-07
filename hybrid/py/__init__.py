@@ -1,1 +1,1 @@
-"""Hybrid module."""
+"""Hybrid search combining lexical and semantic."""
