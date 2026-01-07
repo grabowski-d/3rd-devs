@@ -1,22 +1,49 @@
-"""OpenAI Service - Python implementation of thread/OpenAIService.ts"""
-from typing import List, Dict, Union, Any
-from openai import OpenAI
+"""OpenAI service for thread module."""
+import os
+from typing import Union, List, Optional, AsyncIterator, Dict, Any
+from openai import OpenAI, AsyncOpenAI
+from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessageParam
+
 
 class OpenAIService:
-    def __init__(self):
-        self.openai = OpenAI()
-    
-    async def completion(self, messages: List[Dict[str, str]], model: str = "gpt-4", stream: bool = False) -> Union[Dict[str, Any], Any]:
+    """OpenAI API wrapper for thread conversations."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        """Initialize OpenAI service.
+        
+        Args:
+            api_key: OpenAI API key. If not provided, uses OPENAI_API_KEY env var.
+        """
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        self.client = OpenAI(api_key=self.api_key)
+
+    async def completion(
+        self,
+        messages: List[ChatCompletionMessageParam],
+        model: str = 'gpt-4',
+        stream: bool = False
+    ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
+        """Generate a chat completion.
+        
+        Args:
+            messages: List of chat messages.
+            model: Model name (default: gpt-4).
+            stream: Whether to stream response (default: False).
+        
+        Returns:
+            ChatCompletion or async iterator of chunks if streaming.
+        """
         try:
-            chat_completion = self.openai.chat.completions.create(messages=messages, model=model, stream=stream)
-            return chat_completion if stream else self._format_response(chat_completion)
+            completion = self.client.chat.completions.create(
+                messages=messages,
+                model=model,
+                stream=stream,
+            )
+
+            if stream:
+                return completion
+            else:
+                return completion
+
         except Exception as error:
-            print(f"Error in OpenAI completion: {error}")
-            raise
-    
-    def _format_response(self, response: Any) -> Dict[str, Any]:
-        return {
-            'id': response.id, 'model': response.model, 'created': response.created,
-            'choices': [{'message': {'role': c.message.role, 'content': c.message.content}, 'finish_reason': c.finish_reason} for c in response.choices],
-            'usage': {'prompt_tokens': response.usage.prompt_tokens, 'completion_tokens': response.usage.completion_tokens, 'total_tokens': response.usage.total_tokens}
-        }
+            raise ValueError(f'Error in OpenAI completion: {error}')
