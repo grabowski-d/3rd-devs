@@ -1,6 +1,6 @@
 """Assistant service for audio map application."""
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from .openai_service import OpenAIService
