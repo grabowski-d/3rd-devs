@@ -1,1 +1,1 @@
-"""Extract keywords module."""
+"""Keyword extraction service."""

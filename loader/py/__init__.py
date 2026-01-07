@@ -1,1 +1,1 @@
-"""Loader module."""
+"""Document loader service."""

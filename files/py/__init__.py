@@ -1,1 +1,1 @@
-"""Files module."""
+"""File service."""

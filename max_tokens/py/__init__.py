@@ -1,1 +1,1 @@
-"""Max tokens module."""
+"""Token counter service."""

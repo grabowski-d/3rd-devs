@@ -1,1 +1,1 @@
-"""Linear module."""
+"""Linear algebra service."""
