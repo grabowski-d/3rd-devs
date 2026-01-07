@@ -1,86 +1,83 @@
-"""Example audio assistant application."""
+"""Example application using audio service.
+
+Demonstrates:
+- Text-to-speech (OpenAI, ElevenLabs)
+- Speech-to-text (OpenAI, Groq)
+- Embeddings
+"""
 
 import asyncio
-from .openai_service import OpenAIService
-from .assistant_service import AssistantService
+import os
+import logging
+from audio_service import AudioService
+from openai_service import OpenAIService
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-async def main():
-    """Run example audio assistant."""
-
+async def main() -> None:
+    """Main application function."""
     # Initialize services
-    openai_service = OpenAIService()
-    assistant = AssistantService(openai_service)
-
-    print("\n" + "=" * 60)
-    print("Audio Assistant Example")
-    print("=" * 60 + "\n")
-
-    # Example 1: Add memory
-    print("1. Adding memory...")
-    memory = await assistant.add_memory(
-        title="User Preferences",
-        content="User prefers Polish language responses and technical discussions",
-        category="user",
+    audio_service = AudioService(
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY"),
+        groq_api_key=os.getenv("GROQ_API_KEY"),
     )
-    print(f"   Added memory: {memory['id']}\n")
+    openai_service = OpenAIService()
 
-    # Example 2: Generate answer with context
-    print("2. Generating answer with context...")
+    # Example text
+    text = "Hello! This is a test of text to speech conversion."
+    logger.info(f"Input text: {text}")
+
+    # Generate speech with OpenAI
+    logger.info("\n1. Generating speech with OpenAI...")
     try:
-        messages = [
-            {
-                "role": "user",
-                "content": "What is artificial intelligence?",
-            },
-        ]
-
-        memories_context = await assistant.get_relevant_context(
-            "artificial intelligence"
+        audio_bytes = await audio_service.text_to_speech_openai(
+            text, voice="nova"
         )
-        response = await assistant.answer(
-            messages=messages,
-            memories=memories_context or "No specific memories found",
-        )
+        logger.info(f"Generated {len(audio_bytes)} bytes of audio")
 
-        answer = response.choices[0].message.content
-        print(f"   Response: {answer[:200]}...\n")
+        # Save to file for demo
+        with open("/tmp/openai_speech.mp3", "wb") as f:
+            f.write(audio_bytes)
+        logger.info("Saved to /tmp/openai_speech.mp3")
 
-        # Learn from response if applicable
-        if assistant.should_learn(answer, "AI"):
-            learning = await assistant.add_learning(
-                topic="AI",
-                content=answer[:500],
-                source="assistant",
-            )
-            print(f"   Learned: {learning['id']}\n")
+        # Transcribe back
+        logger.info("\n2. Transcribing audio...")
+        transcribed = await audio_service.speech_to_text_openai(audio_bytes)
+        logger.info(f"Transcribed: {transcribed}")
+    except Exception as e:
+        logger.error(f"Error with OpenAI: {e}")
 
-    except Exception as error:
-        print(f"   Error: {error}\n")
+    # Try ElevenLabs if configured
+    logger.info("\n3. Trying ElevenLabs...")
+    elevenlabs_audio = await audio_service.text_to_speech_elevenlabs(
+        "This is ElevenLabs speech synthesis."
+    )
+    if elevenlabs_audio:
+        logger.info(f"ElevenLabs generated {len(elevenlabs_audio)} bytes")
+    else:
+        logger.info("ElevenLabs not configured")
 
-    # Example 3: Transcription simulation
-    print("3. Simulating transcription...")
+    # Create embeddings
+    logger.info("\n4. Creating embeddings...")
     try:
-        # In practice, would be real audio bytes
-        test_transcription = "Hello, this is a test message"
-        print(f"   Transcribed: {test_transcription}")
-        print(f"   Token count: {openai_service.count_tokens(test_transcription)}\n")
-    except Exception as error:
-        print(f"   Error: {error}\n")
+        embedding = await openai_service.create_embedding(
+            "This is a test sentence for embedding."
+        )
+        logger.info(f"Embedding dimension: {len(embedding)}")
+    except Exception as e:
+        logger.error(f"Error creating embedding: {e}")
 
-    # Example 4: Show learnings and memories
-    print("4. Retrieving stored information...")
-    memories = assistant.get_memories()
-    learnings = assistant.get_learnings()
-    print(f"   Stored memories: {len(memories)}")
-    print(f"   Stored learnings: {len(learnings)}")
-
-    if memories:
-        print(f"   Latest memory: {memories[-1]['title']}")
-    if learnings:
-        print(f"   Latest learning: {learnings[-1]['topic']}")
-
-    print("\n" + "=" * 60)
+    # Count tokens
+    logger.info("\n5. Counting tokens...")
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": text},
+    ]
+    tokens = await openai_service.count_tokens(messages)
+    logger.info(f"Message tokens: {tokens}")
 
 
 if __name__ == "__main__":
