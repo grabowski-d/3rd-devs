@@ -1,91 +1,64 @@
-"""Flask Streaming App - Python implementation of streaming/app.ts"""
-from flask import Flask, request, jsonify, Response
+"""Flask application for streaming chat."""
+from flask import Flask, request, jsonify, Response, stream_with_context
+import asyncio
 from openai_service import OpenAIService
-from helpers import is_valid_message
-import uuid
-import json
-import time
+from streaming_service import StreamingService
+from helpers import validate_messages
 
 app = Flask(__name__)
-app.json.compact = False
+port = 3000
 
 openai_service = OpenAIService()
+streaming_service = StreamingService(openai_service)
 
-def _validate_messages(req_data):
-    messages = req_data.get('messages', [])
-    if not isinstance(messages, list) or len(messages) == 0:
-        raise ValueError('Invalid or missing messages in request body')
-    if not all(is_valid_message(msg) for msg in messages):
-        raise ValueError('Invalid message format in request body')
-    return messages
 
 @app.route('/api/chat', methods=['POST'])
-async def chat():
-    try:
-        data = request.get_json()
-        messages = _validate_messages(data)
-        stream = data.get('stream', False)
-        
-        system_prompt = {"role": "system", "content": "You are a helpful assistant who speaks using as fewest words as possible."}
-        await completion([system_prompt, *messages], stream)
-        
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as error:
-        print(f'Error in OpenAI completion: {str(error)}')
-        return jsonify({'error': 'An error occurred while processing your request'}), 500
+def chat():
+    """Handle chat endpoint with optional streaming."""
+    data = request.json
+    messages = data.get('messages', [])
+    stream = data.get('stream', False)
 
-async def completion(messages, stream: bool):
-    conversation_uuid = str(uuid.uuid4())
-    
-    if stream:
-        def generate():
+    # Validate messages
+    if not validate_messages(messages):
+        return jsonify({'error': 'Invalid or missing messages in request body'}), 400
+
+    try:
+        async def generate():
+            async for chunk in streaming_service.completion(messages, stream):
+                yield chunk
+
+        if stream:
+            return Response(
+                stream_with_context(generate()),
+                mimetype='text/event-stream',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    'X-Accel-Buffering': 'no',
+                }
+            )
+        else:
+            # For non-streaming, collect response
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                starting_chunk = {
-                    'id': f"chatcmpl-{int(time.time() * 1000)}",
-                    'object': 'chat.completion.chunk',
-                    'created': int(time.time()),
-                    'model': 'gpt-4',
-                    'system_fingerprint': f"fp_{uuid.uuid4().hex[:15]}",
-                    'choices': [{
-                        'index': 0,
-                        'delta': {'role': 'assistant', 'content': 'starting response'},
-                        'logprobs': None,
-                        'finish_reason': None
-                    }]
-                }
-                yield f"data: {json.dumps(starting_chunk)}\n\n"
+                response_data = None
+                async def collect():
+                    nonlocal response_data
+                    async for chunk in streaming_service.completion(messages, False):
+                        response_data = chunk
                 
-                result = await openai_service.completion(messages, "gpt-4", True)
-                for chunk in result:
-                    yield f"data: {json.dumps(chunk)}\n\n"
-                    
-            except Exception as error:
-                print(f'Error in streaming response: {error}')
-                error_chunk = {
-                    'id': f"chatcmpl-{int(time.time() * 1000)}",
-                    'object': 'chat.completion.chunk',
-                    'created': int(time.time()),
-                    'model': 'gpt-4',
-                    'system_fingerprint': f"fp_{uuid.uuid4().hex[:15]}",
-                    'choices': [{
-                        'index': 0,
-                        'delta': {'content': 'An error occurred during streaming'},
-                        'logprobs': None,
-                        'finish_reason': 'stop'
-                    }]
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n"
-        
-        return Response(generate(), mimetype='text/event-stream', headers={
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Conversation-UUID': conversation_uuid
-        })
-    else:
-        answer = await openai_service.completion(messages)
-        return jsonify({**answer, 'conversationUUID': conversation_uuid})
+                loop.run_until_complete(collect())
+                import json
+                return jsonify(json.loads(response_data))
+            finally:
+                loop.close()
+
+    except Exception as error:
+        return jsonify({'error': f'Error processing request: {error}'}), 500
+
 
 if __name__ == '__main__':
-    print(f"Server running at http://localhost:5000. Listening for POST /api/chat requests")
-    app.run(debug=True, port=5000)
+    print(f'Server running at http://localhost:{port}. Listening for POST /api/chat requests')
+    app.run(port=port, debug=False, threaded=True)

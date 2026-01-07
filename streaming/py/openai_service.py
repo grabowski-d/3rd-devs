@@ -1,0 +1,49 @@
+"""OpenAI service for streaming completions."""
+import os
+from typing import List, Union, Optional, AsyncIterator
+from openai import OpenAI
+from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessageParam
+
+
+class OpenAIService:
+    """OpenAI API wrapper for streaming chat completions."""
+
+    def __init__(self, api_key: Optional[str] = None):
+        """Initialize OpenAI service.
+        
+        Args:
+            api_key: OpenAI API key. If not provided, uses OPENAI_API_KEY env var.
+        """
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        self.client = OpenAI(api_key=self.api_key)
+
+    async def completion(
+        self,
+        messages: List[ChatCompletionMessageParam],
+        model: str = 'gpt-4',
+        stream: bool = False
+    ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
+        """Generate a chat completion.
+        
+        Args:
+            messages: List of chat messages.
+            model: Model name (default: gpt-4).
+            stream: Whether to stream response (default: False).
+        
+        Returns:
+            ChatCompletion or async iterator of chunks if streaming.
+        """
+        try:
+            completion = self.client.chat.completions.create(
+                messages=messages,
+                model=model,
+                stream=stream,
+            )
+
+            if stream:
+                return completion
+            else:
+                return completion
+
+        except Exception as error:
+            raise ValueError(f'Error in OpenAI completion: {error}')
