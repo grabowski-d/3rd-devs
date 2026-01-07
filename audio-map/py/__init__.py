@@ -1,1 +1,1 @@
-"""Audio map module."""
+"""Audio Map service package."""
