@@ -1,1 +1,1 @@
-"""Qdrant module."""
+"""Qdrant vector search service."""

@@ -1,1 +1,1 @@
-"""Semantic module."""
+"""Semantic search service."""

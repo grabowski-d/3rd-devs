@@ -1,1 +1,1 @@
-"""Langfuse module."""
+"""Langfuse tracing service."""
